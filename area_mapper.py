@@ -2,7 +2,6 @@ import streamlit as st
 import folium
 from folium import plugins
 from folium.plugins import Draw, MeasureControl
-from streamlit_folium import folium_static, st_folium
 from geopy.geocoders import Nominatim
 import json
 from typing import Dict, Any, Tuple
