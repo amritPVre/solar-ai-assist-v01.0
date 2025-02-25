@@ -24,9 +24,6 @@ scipy
 requests
 
 # NLP and AI components
-langchain-core>=0.2.8
-langchain>=0.2.5
-langchain-community
 openai
 
 # Date and time handling
@@ -38,7 +35,7 @@ Pillow
 
 # Type hints
 typing-extensions
-pydantic>=1.10.13,<2.0.0  # Force Pydantic v1
+pydantic
 
 # For advanced drawing and visual components
 branca
