@@ -195,53 +195,50 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
     monthly_energy = daily_energy.resample('M').sum()
     
     # Create DataFrames with error handling
+    # Create DataFrames with error handling
     try:
-        irradiation_daily = pd.DataFrame({
-            "Date": pd.to_datetime(daily_gii.index.tz_localize(None)),
-            "Daily Solar Irradiation (kWh/m²)": daily_gii.values
-        })
+        # For daily irradiation
+        irradiation_daily = pd.DataFrame()
+        irradiation_daily["Date"] = daily_gii.index.tz_localize(None)
+        irradiation_daily["Daily Solar Irradiation (kWh/m²)"] = daily_gii.values
         
-        irradiation_monthly = pd.DataFrame({
-            "Month": monthly_gii.index.strftime('%B'),
-            "Monthly Solar Irradiation (kWh/m²)": monthly_gii.values
-        })
-    
-        energy_daily = pd.DataFrame({
-            "Date": pd.to_datetime(daily_energy.index.tz_localize(None)),
-            "Daily Energy Production (kWh)": daily_energy.values
-        })
+        # For monthly irradiation - use numeric month for safer sorting
+        months_list = ["January", "February", "March", "April", "May", "June", 
+                      "July", "August", "September", "October", "November", "December"]
+        month_nums = monthly_gii.index.month
+        month_names = [months_list[m-1] for m in month_nums]
         
-        energy_monthly = pd.DataFrame({
-            "Month": monthly_energy.index.strftime('%B'),
-            "Monthly Energy Production (kWh)": monthly_energy.values
-        })
+        irradiation_monthly = pd.DataFrame()
+        irradiation_monthly["Month_num"] = month_nums  # Keep numeric month for sorting
+        irradiation_monthly["Month"] = month_names     # Display name
+        irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"] = monthly_gii.values
+        
+        # Sort by month number to ensure correct order
+        irradiation_monthly = irradiation_monthly.sort_values("Month_num")
+        
+        # For daily energy
+        energy_daily = pd.DataFrame()
+        energy_daily["Date"] = daily_energy.index.tz_localize(None)
+        energy_daily["Daily Energy Production (kWh)"] = daily_energy.values
+        
+        # For monthly energy - same approach as irradiation
+        month_nums = monthly_energy.index.month
+        month_names = [months_list[m-1] for m in month_nums]
+        
+        energy_monthly = pd.DataFrame()
+        energy_monthly["Month_num"] = month_nums       # Keep numeric month for sorting
+        energy_monthly["Month"] = month_names          # Display name
+        energy_monthly["Monthly Energy Production (kWh)"] = monthly_energy.values
+        
+        # Sort by month number to ensure correct order
+        energy_monthly = energy_monthly.sort_values("Month_num")
+        
     except Exception as e:
         raise ValueError(f"Error creating output DataFrames: {str(e)}")
     
     # Create figures with error handling
     try:
-        # Define month order for consistent display
-        month_order = ["January", "February", "March", "April", "May", "June", 
-                       "July", "August", "September", "October", "November", "December"]
-        
-        # Convert months to categorical for proper ordering in both dataframes
-        irradiation_monthly["Month"] = pd.Categorical(
-            irradiation_monthly["Month"],
-            categories=month_order,
-            ordered=True
-        )
-        
-        energy_monthly["Month"] = pd.Categorical(
-            energy_monthly["Month"],
-            categories=month_order,
-            ordered=True
-        )
-        
-        # Sort by month order
-        irradiation_monthly = irradiation_monthly.sort_values("Month")
-        energy_monthly = energy_monthly.sort_values("Month")
-        
-        # Create daily irradiation figure with proper date formatting
+        # Daily irradiation figure
         irradiation_fig_daily = go.Figure()
         irradiation_fig_daily.add_trace(go.Scatter(
             x=irradiation_daily["Date"],
@@ -250,6 +247,14 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             line=dict(color='brown'),
             name='Daily Irradiation'
         ))
+        
+        # Get every other month for x-axis ticks to avoid crowding
+        tick_dates = pd.date_range(
+            start=irradiation_daily["Date"].min(),
+            end=irradiation_daily["Date"].max(),
+            freq='2MS'  # Every 2 months
+        )
+        
         irradiation_fig_daily.update_layout(
             title="Daily Solar Irradiation",
             xaxis_title="Date",
@@ -257,18 +262,12 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             showlegend=True,
             xaxis=dict(
                 type='date',
-                tickformat='%b %Y',
-                tickmode='array',
-                tickvals=pd.date_range(
-                    start=irradiation_daily["Date"].min(),
-                    end=irradiation_daily["Date"].max(),
-                    freq='MS',  # Month start
-                    normalize=True
-                )[::2]  # Show every other month for clarity
+                tickvals=tick_dates,
+                tickformat="%b %Y"
             )
         )
     
-        # Create monthly irradiation figure
+        # Monthly irradiation figure
         irradiation_fig_monthly = go.Figure()
         irradiation_fig_monthly.add_trace(go.Bar(
             x=irradiation_monthly["Month"],
@@ -282,13 +281,13 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             yaxis_title="kWh/m²",
             showlegend=True,
             xaxis=dict(
+                type='category',
                 categoryorder='array',
-                categoryarray=month_order,
-                tickangle=0
+                categoryarray=months_list
             )
         )
     
-        # Create daily energy figure with proper date formatting
+        # Daily energy figure
         energy_fig_daily = go.Figure()
         energy_fig_daily.add_trace(go.Scatter(
             x=energy_daily["Date"],
@@ -297,6 +296,7 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             line=dict(color='blue'),
             name='Daily Energy'
         ))
+        
         energy_fig_daily.update_layout(
             title="Daily Energy Production",
             xaxis_title="Date",
@@ -304,18 +304,12 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             showlegend=True,
             xaxis=dict(
                 type='date',
-                tickformat='%b %Y',
-                tickmode='array',
-                tickvals=pd.date_range(
-                    start=energy_daily["Date"].min(),
-                    end=energy_daily["Date"].max(),
-                    freq='MS',  # Month start
-                    normalize=True
-                )[::2]  # Show every other month for clarity
+                tickvals=tick_dates,
+                tickformat="%b %Y"
             )
         )
     
-        # Create monthly energy figure
+        # Monthly energy figure
         energy_fig_monthly = go.Figure()
         energy_fig_monthly.add_trace(go.Bar(
             x=energy_monthly["Month"],
@@ -329,9 +323,9 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
             yaxis_title="kWh",
             showlegend=True,
             xaxis=dict(
+                type='category',
                 categoryorder='array',
-                categoryarray=month_order,
-                tickangle=0
+                categoryarray=months_list
             )
         )
     except Exception as e:
