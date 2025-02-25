@@ -7,12 +7,7 @@ Solar Expert AI - A streamlined solar system design and calculation tool
 """
 
 import streamlit as st
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
-from langchain.tools import BaseTool
+import openai
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from geopy.geocoders import Nominatim
@@ -696,136 +691,91 @@ def create_location_map(latitude, longitude, location_name, system_capacity):
         return None
 
 
-# Initialize LangChain components
-def init_langchain():
-    """Initialize LangChain with separate chains for general queries and system design"""
-    llm = ChatOpenAI(
-        model_name="gpt-4o-mini",
-        temperature=0.7,
-        openai_api_key=st.secrets["OPENAI_KEY"]
-    )
-
-    # System design message - strictly for parameter extraction
-    system_design_message = SystemMessage(content="""You are a solar system design assistant. Extract either system capacity OR available area from user input.
-
-ALWAYS respond in this exact format for system queries:
-<conversation>
-[Your acknowledgment of the input parameters]
-</conversation>
-<json>
-{
-    "query_type": "system_design",
-    "location_info": {
-        "city": "EXTRACTED_CITY",
-        "country": "EXTRACTED_COUNTRY"
-    },
-    "system_params": {
-        "plant_capacity_kw": EXTRACTED_CAPACITY_OR_NULL,
-        "available_area": EXTRACTED_AREA_OR_NULL,
-        "tilt": EXTRACTED_TILT,
-        "azimuth": 180,
-        "performance_ratio": 0.8
-    },
-    "next_action": "calculate"
-}
-</json>
-
-Example inputs and responses:
-1. "I have 100 sq meters available on my roof in Mumbai"
-<conversation>
-I'll analyze a solar system for your 100 sq meter roof area in Mumbai.
-</conversation>
-<json>
-{
-    "query_type": "system_design",
-    "location_info": {"city": "Mumbai", "country": "India"},
-    "system_params": {
-        "plant_capacity_kw": null,
-        "available_area": 100,
-        "tilt": 20,
-        "azimuth": 180,
-        "performance_ratio": 0.8
-    },
-    "next_action": "calculate"
-}
-</json>
-
-2. "Want to install 50kW system in Delhi"
-<conversation>
-I'll analyze a 50kW solar system in Delhi.
-</conversation>
-<json>
-{
-    "query_type": "system_design",
-    "location_info": {"city": "Delhi", "country": "India"},
-    "system_params": {
-        "plant_capacity_kw": 50,
-        "available_area": null,
-        "tilt": 20,
-        "azimuth": 180,
-        "performance_ratio": 0.8
-    },
-    "next_action": "calculate"
-}
-</json>
-
-IMPORTANT RULES:
-1. Extract EITHER plant_capacity_kw OR available_area (set the other to null)
-2. For area, accept square meters, sq.m, sqm, m2
-3. For capacity, accept kW, KW, kw, kilowatt
-4. Use default values: tilt=20, azimuth=180, performance_ratio=0.8 if not specified
-5. Request clarification if neither capacity nor area is clear""")
-
-    # General query message - for solar energy questions
-    general_query_message = SystemMessage(content="""You are a solar energy expert. Provide informative responses about solar energy concepts, technology, and industry practices.
-
-Guidelines:
-1. Provide accurate, up-to-date information
-2. Use clear, accessible language
-3. Include technical details when relevant
-4. Cite common industry standards
-5. DO NOT provide system design calculations""")
-
-    # Initialize memories
-    design_memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-
-    general_memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-
-    # Create prompts
-    design_prompt = ChatPromptTemplate.from_messages([
-        system_design_message,
-        MessagesPlaceholder(variable_name="chat_history"),
-        HumanMessagePromptTemplate.from_template("{input}")
-    ])
-
-    general_prompt = ChatPromptTemplate.from_messages([
-        general_query_message,
-        MessagesPlaceholder(variable_name="chat_history"),
-        HumanMessagePromptTemplate.from_template("{input}")
-    ])
-
-    # Create conversation chains
-    design_chain = ConversationChain(
-        memory=design_memory,
-        prompt=design_prompt,
-        llm=llm,
-        verbose=True
-    )
-
-    general_chain = ConversationChain(
-        memory=general_memory,
-        prompt=general_prompt,
-        llm=llm,
-        verbose=True
-    )
-
-    return design_chain, general_chain
+class SimpleAIAssistant:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        openai.api_key = api_key
+        
+    def chat_completion(self, prompt, system_message=None):
+        """Get response from OpenAI API directly"""
+        try:
+            messages = []
+            
+            # Add system message if provided
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+                
+            # Add user prompt
+            messages.append({"role": "user", "content": prompt})
+            
+            # Call API
+            response = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.7
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            st.error(f"Error calling OpenAI API: {str(e)}")
+            return f"Sorry, I encountered an error. Please try again. ({str(e)})"
+    
+    def process_design_query(self, user_input):
+        """Process a system design query"""
+        system_message = """You are a solar system design assistant. Extract either system capacity OR available area from user input.
+        
+        Respond with a JSON object containing the following fields:
+        {
+            "query_type": "system_design",
+            "location_info": {
+                "city": "EXTRACTED_CITY",
+                "country": "EXTRACTED_COUNTRY"
+            },
+            "system_params": {
+                "plant_capacity_kw": EXTRACTED_CAPACITY_OR_NULL,
+                "available_area": EXTRACTED_AREA_OR_NULL,
+                "tilt": EXTRACTED_TILT,
+                "azimuth": 180,
+                "performance_ratio": 0.8
+            },
+            "next_action": "calculate"
+        }"""
+        
+        response = self.chat_completion(user_input, system_message)
+        
+        # Extract JSON from response
+        try:
+            # Try to parse as JSON directly
+            data = json.loads(response)
+            return "I'll analyze your solar system requirements.", data
+        except:
+            # If that fails, look for JSON block in the text
+            try:
+                json_start = response.find("{")
+                json_end = response.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    json_str = response[json_start:json_end]
+                    data = json.loads(json_str)
+                    conversation = response[:json_start].strip()
+                    return conversation, data
+                else:
+                    return response, None
+            except:
+                return response, None
+    
+    def process_general_query(self, user_input):
+        """Process a general solar knowledge query"""
+        system_message = """You are a solar energy expert. Provide informative responses about solar energy concepts, technology, and industry practices.
+        Your responses should be:
+        1. Accurate and up-to-date
+        2. Clear and accessible
+        3. Include technical details when relevant
+        4. Reference industry standards when appropriate
+        Do not provide detailed system design calculations."""
+        
+        response = self.chat_completion(user_input, system_message)
+        return response, None
 
 def init_tools():
     """Initialize tools"""
@@ -871,12 +821,11 @@ def determine_query_type(user_input: str) -> str:
         return "system_design"
     return "general"
 
-def process_user_input(user_input: str, design_chain, general_chain) -> tuple:
+def process_user_input(user_input: str, mode: str) -> tuple:
     try:
-        # Determine query type and get response
-        if determine_query_type(user_input) == "system_design":
-            response = design_chain.predict(input=user_input)
-            conversation, structured_data = parse_ai_response(response)
+        # Process input based on mode
+        if mode == "System Design & Calculation":
+            conversation, structured_data = st.session_state.ai_assistant.process_design_query(user_input)
             
             if structured_data:
                 # Get location data
@@ -924,7 +873,7 @@ def process_user_input(user_input: str, design_chain, general_chain) -> tuple:
             return conversation, structured_data
         else:
             # Handle general query
-            response = general_chain.predict(input=user_input)
+            response, _ = st.session_state.ai_assistant.process_general_query(user_input)
             return response, None
             
     except Exception as e:
@@ -2292,8 +2241,8 @@ def generate_financial_report(financial_results):
 if 'area_mapper' not in st.session_state:
     st.session_state.area_mapper = SolarAreaMapper()
     
-if "design_chain" not in st.session_state:
-    st.session_state.design_chain, st.session_state.general_chain = init_langchain()
+if "ai_assistant" not in st.session_state:
+    st.session_state.ai_assistant = SimpleAIAssistant(st.secrets["OPENAI_KEY"])
 if "tools" not in st.session_state:
     st.session_state.tools = init_tools()
 if "current_stage" not in st.session_state:
@@ -2363,7 +2312,10 @@ if 'inverter_selection_done' not in st.session_state:
 def reset_conversation():
     """Reset all conversation-related state"""
     try:
-        st.session_state.design_chain, st.session_state.general_chain = init_langchain()
+        # Reinitialize AI assistant (instead of LangChain)
+        st.session_state.ai_assistant = SimpleAIAssistant(st.secrets["OPENAI_KEY"])
+        
+        # Reset all other state variables
         st.session_state.current_stage = "initial"
         st.session_state.system_params = {}
         st.session_state.results = None
@@ -2467,18 +2419,7 @@ if prompt:
     # Process input based on mode
     with st.chat_message("assistant"):
         with st.spinner("Processing..." if mode == "System Design & Calculation" else "Thinking..."):
-            if mode == "System Design & Calculation":
-                conversation, structured_data = process_user_input(
-                    prompt, 
-                    st.session_state.design_chain,
-                    st.session_state.general_chain
-                )
-            else:
-                conversation, structured_data = process_user_input(
-                    prompt,
-                    st.session_state.general_chain,
-                    st.session_state.general_chain
-                )
+            conversation, structured_data = process_user_input(prompt, mode)
             
             if conversation:
                 st.write(conversation)
