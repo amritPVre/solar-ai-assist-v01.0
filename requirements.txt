@@ -1,5 +1,5 @@
 # Core dependencies
-streamlit
+streamlit==1.30.0
 numpy
 pandas
 matplotlib
