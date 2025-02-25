@@ -37,7 +37,7 @@ Pillow
 
 # Type hints
 typing-extensions
-pydantic==2.4.2
+pydantic
 
 # For advanced drawing and visual components
-branca==0.6.0
+branca
