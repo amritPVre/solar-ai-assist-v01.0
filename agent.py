@@ -510,11 +510,14 @@ def create_sunpath_diagram(latitude, longitude, tz_str, tilt, azimuth):
 
 
 def create_energy_heatmap(energy_data):
-    """Create heatmap visualization of energy production patterns"""
-    import plotly.graph_objects as go
+    """Create heatmap visualization of energy production patterns using Matplotlib"""
+    import matplotlib.pyplot as plt
     import pandas as pd
     import numpy as np
     from datetime import datetime
+    import io
+    import base64
+    import plotly.graph_objects as go
 
     try:
         # Validate energy_data structure
@@ -563,57 +566,71 @@ def create_energy_heatmap(energy_data):
         
         # Create month labels
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         
-        # Create the heatmap
-        fig = go.Figure(data=go.Heatmap(
-            z=heatmap_data,
-            x=months,
-            y=[f"{hour:02d}:00" for hour in hours],
-            colorscale='Viridis',
-            hoverongaps=False,
-            hovertemplate="Month: %{x}<br>Time: %{y}<br>Energy: %{z:.2f} kWh<extra></extra>",
-            colorbar=dict(
-                title="Energy Production (kWh)",
-                titleside="right"
-            )
-        ))
+        # Create the heatmap using Matplotlib
+        fig, ax = plt.subplots(figsize=(12, 8))
+        im = ax.imshow(heatmap_data, cmap='viridis', aspect='auto')
         
-        # Update layout
-        fig.update_layout(
-            title=dict(
-                text="⚡ Daily Energy Production Pattern",
-                x=0.5,
-                y=0.95
-            ),
-            xaxis=dict(
-                title="Month",
-                tickangle=0
-            ),
-            yaxis=dict(
-                title="Hour of Day",
-                autorange="reversed"  # To show morning hours at top
-            ),
-            height=700,
-            margin=dict(l=80, r=80, t=100, b=80)
-        )
+        # Set ticks and labels
+        ax.set_xticks(np.arange(len(months)))
+        ax.set_yticks(np.arange(len(hours)))
+        ax.set_xticklabels(months)
+        ax.set_yticklabels([f"{hour:02d}:00" for hour in hours])
+        
+        # Rotate the x-axis labels
+        plt.setp(ax.get_xticklabels(), rotation=0, ha="center")
+        
+        # Add colorbar
+        cbar = ax.figure.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel("Energy Production (kWh)", rotation=-90, va="bottom")
+        
+        # Add title and labels
+        ax.set_title("⚡ Daily Energy Production Pattern")
+        ax.set_xlabel("Month")
+        ax.set_ylabel("Hour of Day")
+        
+        # Reverse y-axis to show morning hours at top
+        ax.invert_yaxis()
         
         # Find peak production time safely
         max_weight_index = np.argmax(hourly_weights)
         max_month_index = np.argmax(np.max(heatmap_data, axis=0))
         
-        # Add peak production annotation only if we have valid indices
+        # Add peak production annotation
         if max_weight_index < 24 and max_month_index < 12:
-            fig.add_annotation(
-                x=months[max_month_index],
-                y=f"{max_weight_index:02d}:00",
-                text="Peak Production",
-                showarrow=True,
-                arrowhead=1,
-                font=dict(size=12, color="white")
-            )
+            ax.annotate('Peak Production',
+                        xy=(max_month_index, max_weight_index),
+                        xytext=(max_month_index + 2, max_weight_index - 2),
+                        arrowprops=dict(facecolor='white', shrink=0.05),
+                        color='white')
         
-        return fig
+        plt.tight_layout()
+        
+        # Convert Matplotlib figure to Plotly compatible format
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        
+        img_str = base64.b64encode(buf.read()).decode('utf-8')
+        plotly_fig = go.Figure()
+        plotly_fig.add_layout_image(
+            dict(
+                source=f'data:image/png;base64,{img_str}',
+                xref="paper", yref="paper",
+                x=0, y=1,
+                sizex=1, sizey=1,
+                sizing="stretch",
+                layer="below"
+            )
+        )
+        plotly_fig.update_layout(
+            width=800, height=600,
+            margin=dict(l=0, r=0, t=0, b=0)
+        )
+        plt.close(fig)  # Close the original figure to free resources
+        
+        return plotly_fig
         
     except Exception as e:
         st.error(f"Error creating heatmap: {str(e)}")
