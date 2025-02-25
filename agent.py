@@ -710,6 +710,11 @@ class SimpleAIAssistant:
         self.api_key = api_key
         openai.api_key = api_key
         
+        # Detect OpenAI API version
+        self.is_new_api = hasattr(openai, 'OpenAI')
+        if self.is_new_api:
+            self.client = openai.OpenAI(api_key=api_key)
+        
     def chat_completion(self, prompt, system_message=None):
         """Get response from OpenAI API directly"""
         try:
@@ -722,14 +727,23 @@ class SimpleAIAssistant:
             # Add user prompt
             messages.append({"role": "user", "content": prompt})
             
-            # Call API
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.7
-            )
-            
-            return response.choices[0].message.content
+            # Call API based on detected version
+            if self.is_new_api:
+                # New API (v1.0+)
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content
+            else:
+                # Old API (v0.28 and earlier)
+                response = openai.ChatCompletion.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content
             
         except Exception as e:
             st.error(f"Error calling OpenAI API: {str(e)}")
@@ -1482,9 +1496,14 @@ def show_3d_orientation():
     """Display 3D panel orientation in the results tab"""
     st.subheader("📐 Panel Orientation")
     
-    # Get parameters from session state
-    tilt = st.session_state.system_params.get('surface_tilt', 20)
-    azimuth = st.session_state.system_params.get('surface_azimuth', 180)
+    # Get parameters from session state with proper default handling
+    tilt = st.session_state.system_params.get('surface_tilt')
+    if tilt is None:
+        tilt = 20.0
+    
+    azimuth = st.session_state.system_params.get('surface_azimuth')
+    if azimuth is None:
+        azimuth = 180.0
     
     # Create and display the visualization
     fig = create_panel_3d_viz(tilt, azimuth)
@@ -1512,8 +1531,20 @@ def show_sunpath_analysis():
     """Display sunpath diagram in the results tab"""
     st.subheader("☀️ Solar Path Analysis")
     
-    # Get parameters from session state
-    params = st.session_state.system_params
+    # Get parameters from session state with proper default handling
+    params = st.session_state.system_params.copy()
+    
+    # Ensure all required parameters have valid values
+    if params.get('latitude') is None:
+        params['latitude'] = 0.0
+    if params.get('longitude') is None:
+        params['longitude'] = 0.0
+    if params.get('tz_str') is None:
+        params['tz_str'] = 'UTC'
+    if params.get('surface_tilt') is None:
+        params['surface_tilt'] = it = 20.0
+    if params.get('surface_azimuth') is None:
+        params['surface_azimuth'] = 180.0
     
     # Create and display the visualization
     fig = create_sunpath_diagram(
