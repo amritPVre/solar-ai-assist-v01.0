@@ -194,140 +194,127 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
     daily_energy = hourly_energy.resample('D').sum() * total_area
     monthly_energy = daily_energy.resample('M').sum()
     
-    # Create DataFrames with error handling
+
     # Create DataFrames with error handling
     try:
-        # For daily irradiation
-        irradiation_daily = pd.DataFrame()
-        irradiation_daily["Date"] = daily_gii.index.tz_localize(None)
-        irradiation_daily["Daily Solar Irradiation (kWh/m²)"] = daily_gii.values
+        irradiation_daily = pd.DataFrame({
+            "Date": daily_gii.index.tz_localize(None),
+            "Daily Solar Irradiation (kWh/m²)": daily_gii.values
+        })
         
-        # For monthly irradiation - use numeric month for safer sorting
-        months_list = ["January", "February", "March", "April", "May", "June", 
-                      "July", "August", "September", "October", "November", "December"]
-        month_nums = monthly_gii.index.month
-        month_names = [months_list[m-1] for m in month_nums]
+        irradiation_monthly = pd.DataFrame({
+            "Month": monthly_gii.index.strftime('%B'),
+            "Monthly Solar Irradiation (kWh/m²)": monthly_gii.values
+        })
+    
+        energy_daily = pd.DataFrame({
+            "Date": daily_energy.index.tz_localize(None),
+            "Daily Energy Production (kWh)": daily_energy.values
+        })
         
-        irradiation_monthly = pd.DataFrame()
-        irradiation_monthly["Month_num"] = month_nums  # Keep numeric month for sorting
-        irradiation_monthly["Month"] = month_names     # Display name
-        irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"] = monthly_gii.values
-        
-        # Sort by month number to ensure correct order
-        irradiation_monthly = irradiation_monthly.sort_values("Month_num")
-        
-        # For daily energy
-        energy_daily = pd.DataFrame()
-        energy_daily["Date"] = daily_energy.index.tz_localize(None)
-        energy_daily["Daily Energy Production (kWh)"] = daily_energy.values
-        
-        # For monthly energy - same approach as irradiation
-        month_nums = monthly_energy.index.month
-        month_names = [months_list[m-1] for m in month_nums]
-        
-        energy_monthly = pd.DataFrame()
-        energy_monthly["Month_num"] = month_nums       # Keep numeric month for sorting
-        energy_monthly["Month"] = month_names          # Display name
-        energy_monthly["Monthly Energy Production (kWh)"] = monthly_energy.values
-        
-        # Sort by month number to ensure correct order
-        energy_monthly = energy_monthly.sort_values("Month_num")
-        
+        energy_monthly = pd.DataFrame({
+            "Month": monthly_energy.index.strftime('%B'),
+            "Monthly Energy Production (kWh)": monthly_energy.values
+        })
     except Exception as e:
         raise ValueError(f"Error creating output DataFrames: {str(e)}")
     
-    # Create figures with error handling
+    # Create figures with Matplotlib instead of Plotly
     try:
-        # Daily irradiation figure
-        irradiation_fig_daily = go.Figure()
-        irradiation_fig_daily.add_trace(go.Scatter(
-            x=irradiation_daily["Date"],
-            y=irradiation_daily["Daily Solar Irradiation (kWh/m²)"],
-            mode='lines',
-            line=dict(color='brown'),
-            name='Daily Irradiation'
-        ))
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from io import BytesIO
+        import base64
         
-        # Get every other month for x-axis ticks to avoid crowding
-        tick_dates = pd.date_range(
-            start=irradiation_daily["Date"].min(),
-            end=irradiation_daily["Date"].max(),
-            freq='2MS'  # Every 2 months
-        )
-        
-        irradiation_fig_daily.update_layout(
-            title="Daily Solar Irradiation",
-            xaxis_title="Date",
-            yaxis_title="kWh/m²",
-            showlegend=True,
-            xaxis=dict(
-                type='date',
-                tickvals=tick_dates,
-                tickformat="%b %Y"
+        # Function to convert Matplotlib figure to Plotly-compatible format
+        def matplotlib_to_plotly_figure(fig):
+            # Save figure to BytesIO object
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            
+            # Create a Plotly figure that embeds the image
+            img_str = base64.b64encode(buf.read()).decode('utf-8')
+            plotly_fig = go.Figure()
+            plotly_fig.add_layout_image(
+                dict(
+                    source=f'data:image/png;base64,{img_str}',
+                    xref="paper", yref="paper",
+                    x=0, y=1,
+                    sizex=1, sizey=1,
+                    sizing="stretch",
+                    layer="below"
+                )
             )
-        )
+            plotly_fig.update_layout(
+                width=800, height=600,
+                margin=dict(l=0, r=0, t=0, b=0)
+            )
+            plt.close(fig)  # Close the original figure to free resources
+            return plotly_fig
+        
+        # Daily irradiation figure
+        fig_irr_daily = plt.figure(figsize=(10, 6))
+        plt.plot(irradiation_daily["Date"], irradiation_daily["Daily Solar Irradiation (kWh/m²)"], 'brown')
+        plt.title('Daily Solar Irradiation')
+        plt.xlabel('Date')
+        plt.ylabel('kWh/m²')
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        irradiation_fig_daily = matplotlib_to_plotly_figure(fig_irr_daily)
     
         # Monthly irradiation figure
-        irradiation_fig_monthly = go.Figure()
-        irradiation_fig_monthly.add_trace(go.Bar(
-            x=irradiation_monthly["Month"],
-            y=irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"],
-            marker_color='indianred',
-            name='Monthly Irradiation'
-        ))
-        irradiation_fig_monthly.update_layout(
-            title="Monthly Solar Irradiation",
-            xaxis_title="Month",
-            yaxis_title="kWh/m²",
-            showlegend=True,
-            xaxis=dict(
-                type='category',
-                categoryorder='array',
-                categoryarray=months_list
-            )
+        month_order = ["January", "February", "March", "April", "May", "June", 
+                       "July", "August", "September", "October", "November", "December"]
+        
+        # Create a categorical type for Month column to ensure correct ordering
+        irradiation_monthly["Month"] = pd.Categorical(
+            irradiation_monthly["Month"],
+            categories=month_order,
+            ordered=True
         )
+        irradiation_monthly = irradiation_monthly.sort_values("Month")
+        
+        fig_irr_monthly = plt.figure(figsize=(10, 6))
+        plt.bar(irradiation_monthly["Month"], irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"], color='indianred')
+        plt.title('Monthly Solar Irradiation')
+        plt.xlabel('Month')
+        plt.ylabel('kWh/m²')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        irradiation_fig_monthly = matplotlib_to_plotly_figure(fig_irr_monthly)
     
         # Daily energy figure
-        energy_fig_daily = go.Figure()
-        energy_fig_daily.add_trace(go.Scatter(
-            x=energy_daily["Date"],
-            y=energy_daily["Daily Energy Production (kWh)"],
-            mode='lines',
-            line=dict(color='blue'),
-            name='Daily Energy'
-        ))
-        
-        energy_fig_daily.update_layout(
-            title="Daily Energy Production",
-            xaxis_title="Date",
-            yaxis_title="kWh",
-            showlegend=True,
-            xaxis=dict(
-                type='date',
-                tickvals=tick_dates,
-                tickformat="%b %Y"
-            )
-        )
+        fig_energy_daily = plt.figure(figsize=(10, 6))
+        plt.plot(energy_daily["Date"], energy_daily["Daily Energy Production (kWh)"], 'blue')
+        plt.title('Daily Energy Production')
+        plt.xlabel('Date')
+        plt.ylabel('kWh')
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        energy_fig_daily = matplotlib_to_plotly_figure(fig_energy_daily)
     
         # Monthly energy figure
-        energy_fig_monthly = go.Figure()
-        energy_fig_monthly.add_trace(go.Bar(
-            x=energy_monthly["Month"],
-            y=energy_monthly["Monthly Energy Production (kWh)"],
-            marker_color='blue',
-            name='Monthly Energy'
-        ))
-        energy_fig_monthly.update_layout(
-            title="Monthly Energy Production",
-            xaxis_title="Month",
-            yaxis_title="kWh",
-            showlegend=True,
-            xaxis=dict(
-                type='category',
-                categoryorder='array',
-                categoryarray=months_list
-            )
+        energy_monthly["Month"] = pd.Categorical(
+            energy_monthly["Month"],
+            categories=month_order,
+            ordered=True
         )
+        energy_monthly = energy_monthly.sort_values("Month")
+        
+        fig_energy_monthly = plt.figure(figsize=(10, 6))
+        plt.bar(energy_monthly["Month"], energy_monthly["Monthly Energy Production (kWh)"], color='blue')
+        plt.title('Monthly Energy Production')
+        plt.xlabel('Month')
+        plt.ylabel('kWh')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        energy_fig_monthly = matplotlib_to_plotly_figure(fig_energy_monthly)
+        
     except Exception as e:
         raise ValueError(f"Error creating figures: {str(e)}")
     
