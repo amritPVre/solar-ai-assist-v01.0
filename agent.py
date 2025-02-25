@@ -79,27 +79,29 @@ class LocationInfo(BaseModel):
     city: str = Field(description="City name")
     country: str = Field(description="Country name")
 
-class SystemParameters(BaseModel):
-    """Model for solar system parameters"""
-    plant_capacity_kw: float = Field(description="System capacity in kilowatts")  # Changed from capacity_kw
-    tilt: Optional[float] = Field(default=20.0, description="Panel tilt angle")
-    azimuth: Optional[float] = Field(default=180.0, description="Panel azimuth angle")
-    module_efficiency: Optional[float] = Field(default=0.21, description="Module efficiency")
-    module_watt_peak: Optional[float] = Field(default=400.0, description="Module watt peak")
-    module_area: Optional[float] = Field(default=1.8, description="Module area in square meters")
-    performance_ratio: Optional[float] = Field(default=0.8, description="System performance ratio")
+def get_default_system_params():
+    """Get default system parameters"""
+    return {
+        "plant_capacity_kw": None,  # Will be set by user input
+        "tilt": 20.0,
+        "azimuth": 180.0,
+        "module_efficiency": 0.21,
+        "module_watt_peak": 400.0,
+        "module_area": 1.8,
+        "performance_ratio": 0.8
+    }
 
 class UserQuery(BaseModel):
     """Model for user query classification"""
     query_type: str = Field(description="Type of query (general/system_design)")
     content: str = Field(description="Query content")
 
-# Custom tools for LangChain
-class LocationTool(BaseTool):
+# Custom tools (without LangChain dependency)
+class LocationTool:
     """Tool for geocoding locations"""
     name = "location_finder"
     description = "Find coordinates and timezone for a location"
-
+    
     def _run(self, location: str) -> Dict[str, Any]:
         geolocator = Nominatim(user_agent="solar_ai", timeout=10)
         try:
@@ -119,17 +121,11 @@ class LocationTool(BaseTool):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def _arun(self, location: str):
-        raise NotImplementedError("Async not implemented")
-        
-        
-
-
-class SolarCalculationTool(BaseTool):
+class SolarCalculationTool:
     """Tool for solar calculations"""
     name = "solar_calculator"
     description = "Calculate solar energy production"
-
+    
     def _run(self, params_json: str) -> Dict[str, Any]:
         try:
             # Parse parameters
@@ -137,7 +133,7 @@ class SolarCalculationTool(BaseTool):
             
             # Define parameter mapping (internal name -> calculator name)
             param_mapping = {
-                'plant_capacity_kw': 'plant_capacity_kw',  # Map to correct parameter name
+                'plant_capacity_kw': 'plant_capacity_kw',
                 'surface_tilt': 'surface_tilt',
                 'surface_azimuth': 'surface_azimuth',
                 'module_efficiency': 'module_efficiency',
@@ -149,15 +145,36 @@ class SolarCalculationTool(BaseTool):
                 'tz_str': 'tz_str'
             }
             
+            # Default values for parameters
+            default_values = {
+                'plant_capacity_kw': 10.0,
+                'surface_tilt': 20.0,
+                'surface_azimuth': 180.0,
+                'module_efficiency': 0.21,
+                'performance_ratio': 0.8,
+                'module_area': 1.8,
+                'module_watt_peak': 400.0,
+                'latitude': 0.0,
+                'longitude': 0.0,
+                'tz_str': 'UTC'
+            }
+            
             # Create clean params dict with mapped parameter names
             clean_params = {}
             for internal_name, calculator_name in param_mapping.items():
-                if internal_name not in params:
+                # Get value from params, or use default if missing or None
+                value = params.get(internal_name)
+                if value is None:
+                    value = default_values.get(internal_name)
+                    
+                # Ensure we have a value
+                if value is None:
                     return {
                         "success": False,
                         "error": f"Missing required parameter: {internal_name}"
                     }
-                clean_params[calculator_name] = params[internal_name]
+                    
+                clean_params[calculator_name] = value
             
             # Print debug information
             st.write("Debug - Parameters being sent to calculator:", clean_params)
@@ -173,9 +190,6 @@ class SolarCalculationTool(BaseTool):
                 "success": False,
                 "error": f"Calculation error: {str(e)}\nTraceback: {traceback.format_exc()}"
             }
-
-    def _arun(self, params_json: str):
-        raise NotImplementedError("Async not implemented")
 
 def calculate_capacity_from_area(area: float, module_specs: dict) -> float:
     """
@@ -2364,12 +2378,27 @@ with st.sidebar:
     if st.session_state.system_params:
         st.subheader("Current Parameters")
         st.markdown('<div class="system-params">', unsafe_allow_html=True)
+        
+        # Get values with proper default handling
+        location = st.session_state.system_params.get("location", "Not set")
+        
+        # For numerical values that need formatting, handle None values explicitly
+        capacity = st.session_state.system_params.get('plant_capacity_kw')
+        capacity_display = f"{float(capacity if capacity is not None else 0):.1f} kW"
+        
+        tilt = st.session_state.system_params.get('surface_tilt')
+        tilt_display = f"{float(tilt if tilt is not None else 20):.1f}°"
+        
+        azimuth = st.session_state.system_params.get('surface_azimuth')
+        azimuth_display = f"{float(azimuth if azimuth is not None else 180):.1f}°"
+        
         params_display = {
-            "Location": st.session_state.system_params.get("location", "Not set"),
-            "Capacity": f"{st.session_state.system_params.get('plant_capacity_kw', 0):.1f} kW",
-            "Tilt": f"{st.session_state.system_params.get('surface_tilt', 20):.1f}°",
-            "Azimuth": f"{st.session_state.system_params.get('surface_azimuth', 180):.1f}°"
+            "Location": location,
+            "Capacity": capacity_display,
+            "Tilt": tilt_display,
+            "Azimuth": azimuth_display
         }
+        
         for key, value in params_display.items():
             st.text(f"{key}: {value}")
         st.markdown('</div>', unsafe_allow_html=True)
