@@ -510,25 +510,29 @@ def create_sunpath_diagram(latitude, longitude, tz_str, tilt, azimuth):
 
 
 def create_energy_heatmap(energy_data):
-    """
-    Create heatmap visualization of energy production patterns
-    """
+    """Create heatmap visualization of energy production patterns"""
     import plotly.graph_objects as go
     import pandas as pd
     import numpy as np
     from datetime import datetime
 
     try:
+        # Validate energy_data structure
+        if not energy_data or 'energy' not in energy_data or 'daily' not in energy_data['energy']:
+            st.warning("Energy data is not properly structured for heatmap visualization")
+            return None
+            
         # Get daily data
         daily_df = pd.DataFrame({
-            'Date': energy_data['energy']['daily']['Date'],
+            'Date': pd.to_datetime(energy_data['energy']['daily']['Date']),
             'Energy': energy_data['energy']['daily']['Daily Energy Production (kWh)']
         })
         
-        # Convert Date column to datetime if it's not already
-        daily_df['Date'] = pd.to_datetime(daily_df['Date'])
+        # Make sure Date is actually datetime
+        if not pd.api.types.is_datetime64_any_dtype(daily_df['Date']):
+            daily_df['Date'] = pd.to_datetime(daily_df['Date'])
         
-        # Add month and hour components
+        # Add month component
         daily_df['Month'] = daily_df['Date'].dt.month
         
         # Create a typical daily profile based on solar hours
@@ -548,7 +552,12 @@ def create_energy_heatmap(energy_data):
         
         # Fill the matrix with weighted values
         for month in range(1, 13):
-            monthly_avg = daily_df[daily_df['Month'] == month]['Energy'].mean()
+            monthly_data = daily_df[daily_df['Month'] == month]
+            if len(monthly_data) > 0:
+                monthly_avg = monthly_data['Energy'].mean()
+            else:
+                monthly_avg = 0
+                
             for hour in range(24):
                 heatmap_data[hour, month-1] = monthly_avg * hourly_weights[hour]
         
@@ -608,11 +617,7 @@ def create_energy_heatmap(energy_data):
         
     except Exception as e:
         st.error(f"Error creating heatmap: {str(e)}")
-        st.write("Debug - Error details:")
-        st.write(f"Error type: {type(e).__name__}")
-        st.write(f"Error message: {str(e)}")
-        st.write("Data structure:")
-        st.write(energy_data['energy'].keys())
+        st.write(f"Error details: {traceback.format_exc()}")
         return None
 
 def create_location_map(latitude, longitude, location_name, system_capacity):
