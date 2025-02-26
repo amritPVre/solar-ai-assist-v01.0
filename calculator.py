@@ -197,101 +197,124 @@ def calculate_solar(latitude, longitude, tz_str, surface_tilt, surface_azimuth,
 
     # Create DataFrames with error handling
     try:
-        # For daily data, explicitly remove timezone
         irradiation_daily = pd.DataFrame({
             "Date": daily_gii.index.tz_localize(None),
             "Daily Solar Irradiation (kWh/m²)": daily_gii.values
         })
         
-        # For monthly data, extract month names
-        irradiation_monthly = pd.DataFrame()
-        irradiation_monthly["index"] = monthly_gii.index
-        irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"] = monthly_gii.values
-        irradiation_monthly["Month"] = pd.to_datetime(irradiation_monthly["index"]).dt.month_name()
-        irradiation_monthly = irradiation_monthly.drop(columns=["index"])
-        irradiation_monthly = irradiation_monthly.set_index("Month").reset_index()
+        irradiation_monthly = pd.DataFrame({
+            "Month": monthly_gii.index.strftime('%B'),
+            "Monthly Solar Irradiation (kWh/m²)": monthly_gii.values
+        })
     
-        # For daily energy data, explicitly remove timezone
         energy_daily = pd.DataFrame({
             "Date": daily_energy.index.tz_localize(None),
             "Daily Energy Production (kWh)": daily_energy.values
         })
         
-        # For monthly energy data, extract month names
-        energy_monthly = pd.DataFrame()
-        energy_monthly["index"] = monthly_energy.index
-        energy_monthly["Monthly Energy Production (kWh)"] = monthly_energy.values
-        energy_monthly["Month"] = pd.to_datetime(energy_monthly["index"]).dt.month_name()
-        energy_monthly = energy_monthly.drop(columns=["index"])
-        energy_monthly = energy_monthly.set_index("Month").reset_index()
+        energy_monthly = pd.DataFrame({
+            "Month": monthly_energy.index.strftime('%B'),
+            "Monthly Energy Production (kWh)": monthly_energy.values
+        })
     except Exception as e:
         raise ValueError(f"Error creating output DataFrames: {str(e)}")
     
-    # Create figures with error handling
+    # Create figures with Matplotlib instead of Plotly
     try:
-        # Daily irradiation figure - simple approach
-        irradiation_fig_daily = go.Figure()
-        irradiation_fig_daily.add_trace(go.Scatter(
-            x=irradiation_daily["Date"],
-            y=irradiation_daily["Daily Solar Irradiation (kWh/m²)"],
-            mode='lines',
-            line=dict(color='brown'),
-            name='Daily Irradiation'
-        ))
-        irradiation_fig_daily.update_layout(
-            title="Daily Solar Irradiation",
-            xaxis_title="Date",
-            yaxis_title="kWh/m²",
-            showlegend=True
-        )
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from io import BytesIO
+        import base64
+        
+        # Function to convert Matplotlib figure to Plotly-compatible format
+        def matplotlib_to_plotly_figure(fig):
+            # Save figure to BytesIO object
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            
+            # Create a Plotly figure that embeds the image
+            img_str = base64.b64encode(buf.read()).decode('utf-8')
+            plotly_fig = go.Figure()
+            plotly_fig.add_layout_image(
+                dict(
+                    source=f'data:image/png;base64,{img_str}',
+                    xref="paper", yref="paper",
+                    x=0, y=1,
+                    sizex=1, sizey=1,
+                    sizing="stretch",
+                    layer="below"
+                )
+            )
+            plotly_fig.update_layout(
+                width=800, height=600,
+                margin=dict(l=0, r=0, t=0, b=0)
+            )
+            plt.close(fig)  # Close the original figure to free resources
+            return plotly_fig
+        
+        # Daily irradiation figure
+        fig_irr_daily = plt.figure(figsize=(10, 6))
+        plt.plot(irradiation_daily["Date"], irradiation_daily["Daily Solar Irradiation (kWh/m²)"], 'brown')
+        plt.title('Daily Solar Irradiation')
+        plt.xlabel('Date')
+        plt.ylabel('kWh/m²')
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        irradiation_fig_daily = matplotlib_to_plotly_figure(fig_irr_daily)
     
-        # Monthly irradiation figure - simple approach with categorical x-axis
-        irradiation_fig_monthly = go.Figure()
-        irradiation_fig_monthly.add_trace(go.Bar(
-            x=irradiation_monthly["Month"],
-            y=irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"],
-            marker_color='indianred',
-            name='Monthly Irradiation'
-        ))
-        irradiation_fig_monthly.update_layout(
-            title="Monthly Solar Irradiation",
-            xaxis_title="Month",
-            yaxis_title="kWh/m²",
-            showlegend=True,
-            xaxis=dict(type='category')  # Explicitly set as category
+        # Monthly irradiation figure
+        month_order = ["January", "February", "March", "April", "May", "June", 
+                       "July", "August", "September", "October", "November", "December"]
+        
+        # Create a categorical type for Month column to ensure correct ordering
+        irradiation_monthly["Month"] = pd.Categorical(
+            irradiation_monthly["Month"],
+            categories=month_order,
+            ordered=True
         )
+        irradiation_monthly = irradiation_monthly.sort_values("Month")
+        
+        fig_irr_monthly = plt.figure(figsize=(10, 6))
+        plt.bar(irradiation_monthly["Month"], irradiation_monthly["Monthly Solar Irradiation (kWh/m²)"], color='indianred')
+        plt.title('Monthly Solar Irradiation')
+        plt.xlabel('Month')
+        plt.ylabel('kWh/m²')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        irradiation_fig_monthly = matplotlib_to_plotly_figure(fig_irr_monthly)
     
-        # Daily energy figure - simple approach
-        energy_fig_daily = go.Figure()
-        energy_fig_daily.add_trace(go.Scatter(
-            x=energy_daily["Date"],
-            y=energy_daily["Daily Energy Production (kWh)"],
-            mode='lines',
-            line=dict(color='blue'),
-            name='Daily Energy'
-        ))
-        energy_fig_daily.update_layout(
-            title="Daily Energy Production",
-            xaxis_title="Date",
-            yaxis_title="kWh",
-            showlegend=True
-        )
+        # Daily energy figure
+        fig_energy_daily = plt.figure(figsize=(10, 6))
+        plt.plot(energy_daily["Date"], energy_daily["Daily Energy Production (kWh)"], 'blue')
+        plt.title('Daily Energy Production')
+        plt.xlabel('Date')
+        plt.ylabel('kWh')
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        energy_fig_daily = matplotlib_to_plotly_figure(fig_energy_daily)
     
-        # Monthly energy figure - simple approach with categorical x-axis
-        energy_fig_monthly = go.Figure()
-        energy_fig_monthly.add_trace(go.Bar(
-            x=energy_monthly["Month"],
-            y=energy_monthly["Monthly Energy Production (kWh)"],
-            marker_color='blue',
-            name='Monthly Energy'
-        ))
-        energy_fig_monthly.update_layout(
-            title="Monthly Energy Production",
-            xaxis_title="Month",
-            yaxis_title="kWh",
-            showlegend=True,
-            xaxis=dict(type='category')  # Explicitly set as category
+        # Monthly energy figure
+        energy_monthly["Month"] = pd.Categorical(
+            energy_monthly["Month"],
+            categories=month_order,
+            ordered=True
         )
+        energy_monthly = energy_monthly.sort_values("Month")
+        
+        fig_energy_monthly = plt.figure(figsize=(10, 6))
+        plt.bar(energy_monthly["Month"], energy_monthly["Monthly Energy Production (kWh)"], color='blue')
+        plt.title('Monthly Energy Production')
+        plt.xlabel('Month')
+        plt.ylabel('kWh')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        energy_fig_monthly = matplotlib_to_plotly_figure(fig_energy_monthly)
+        
     except Exception as e:
         raise ValueError(f"Error creating figures: {str(e)}")
     
